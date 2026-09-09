@@ -1,0 +1,165 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+concurrency:
+  group: release-jaxxstorm-bun-tailscale-bridge
+  cancel-in-progress: false
+env:
+  RELEASE_TAG: ${{ github.ref_name }}
+  RELEASE_COMMIT: ${{ github.sha }}
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      commit: ${{ steps.source.outputs.commit }}
+      tag: ${{ steps.source.outputs.tag }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2.0.2
+        with:
+          bun-version: 1.4.2
+      - id: source
+        run: bun scripts/release.ts preflight
+  verify:
+    needs: [preflight]
+    permissions:
+      contents: read
+    uses: ./.github/workflows/verify.yml
+    with:
+      commit: ${{ needs.preflight.outputs.commit }}
+  candidate:
+    needs: [preflight, verify]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      RELEASE_COMMIT: ${{ needs.preflight.outputs.commit }}
+    outputs:
+      artifact: ${{ steps.upload.outputs.artifact-id }}
+      sha256: ${{ steps.pack.outputs.sha256 }}
+      integrity: ${{ steps.pack.outputs.integrity }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.preflight.outputs.commit }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2.0.2
+        with:
+          bun-version: 1.4.2
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version: 1.26.2
+          cache-dependency-path: helper/go.sum
+      - run: bun install --frozen-lockfile
+      - run: bun run build:all
+      - run: bun run verify:helpers
+      - id: pack
+        run: bun scripts/release.ts pack
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        id: upload
+        with:
+          name: candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: candidate/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+  artifact-check:
+    needs: [preflight, candidate]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      RELEASE_COMMIT: ${{ needs.preflight.outputs.commit }}
+      RELEASE_SHA256: ${{ needs.candidate.outputs.sha256 }}
+      RELEASE_INTEGRITY: ${{ needs.candidate.outputs.integrity }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.preflight.outputs.commit }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2.0.2
+        with:
+          bun-version: 1.4.2
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.candidate.outputs.artifact }}
+          path: candidate/
+          merge-multiple: true
+      - run: bun install --frozen-lockfile
+      - run: bun scripts/release.ts check
+      - name: Native clean consumer of the exact supplied bytes
+        run: bun scripts/verify-package.ts --tarball "candidate/jaxxstorm-bun-tailscale-bridge-${RELEASE_TAG#v}.tgz"
+  npm:
+    needs: [preflight, candidate, artifact-check]
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      RELEASE_COMMIT: ${{ needs.preflight.outputs.commit }}
+      RELEASE_SHA256: ${{ needs.candidate.outputs.sha256 }}
+      RELEASE_INTEGRITY: ${{ needs.candidate.outputs.integrity }}
+      NPM_CONFIG_IGNORE_SCRIPTS: 'true'
+      NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.preflight.outputs.commit }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2.0.2
+        with:
+          bun-version: 1.4.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24.11.1
+      - name: Verify OIDC-capable npm bundled with pinned Node (no install)
+        run: test "$(npm --version)" = 11.6.2
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.candidate.outputs.artifact }}
+          path: candidate/
+          merge-multiple: true
+      - name: Recheck source, bytes, registry integrity, and publish with OIDC
+        run: bun scripts/release.ts npm
+  github:
+    needs: [preflight, candidate, npm]
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      RELEASE_COMMIT: ${{ needs.preflight.outputs.commit }}
+      RELEASE_SHA256: ${{ needs.candidate.outputs.sha256 }}
+      RELEASE_INTEGRITY: ${{ needs.candidate.outputs.integrity }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.preflight.outputs.commit }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2.0.2
+        with:
+          bun-version: 1.4.2
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.candidate.outputs.artifact }}
+          path: candidate/
+          merge-multiple: true
+      - name: Reconcile draft and verify assets without clobbering
+        run: bun scripts/release.ts github
+        env:
+          GH_TOKEN: ${{ github.token }}

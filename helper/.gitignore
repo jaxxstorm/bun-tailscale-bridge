@@ -1,0 +1,5 @@
+/bin/
+*.state
+*.log*
+.bridge-state/
+.env*

@@ -1,0 +1,32 @@
+{
+  "name": "@jaxxstorm/bun-tailscale-bridge",
+  "version": "0.1.0",
+  "description": "Bun HTTP and SOCKS proxies backed by an independent userspace Tailscale node",
+  "license": "MIT",
+  "author": "Lee Briggs",
+  "repository": { "type": "git", "url": "git+https://github.com/jaxxstorm/bun-tailscale-bridge.git" },
+  "homepage": "https://github.com/jaxxstorm/bun-tailscale-bridge#readme",
+  "bugs": { "url": "https://github.com/jaxxstorm/bun-tailscale-bridge/issues" },
+  "publishConfig": { "access": "public", "registry": "https://registry.npmjs.org/" },
+  "type": "module",
+  "packageManager": "bun@1.4.2",
+  "engines": { "bun": "1.4.2" },
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "files": ["dist", "bin", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.txt"],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test test",
+    "test:go": "go -C helper test -tags=ts_omit_webclient ./...",
+    "verify:licenses": "bun scripts/licenses.ts --check",
+    "verify:helpers": "bun scripts/verify-helpers.ts",
+    "build": "bun scripts/build.ts",
+    "build:all": "bun scripts/build.ts --all",
+    "pack": "bun pm pack",
+    "verify:package": "bun scripts/verify-package.ts",
+    "test:live": "bun scripts/live.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.1",
+    "typescript": "5.9.3"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "maxFrameBytes": 65536,
+  "valid": [
+    { "type": "start", "version": 1, "options": { "hostname": "test-bridge", "ephemeral": true, "startupTimeoutMs": 60000, "interactive": false } },
+    { "type": "close", "version": 1 }
+  ],
+  "invalid": [
+    { "type": "start", "version": 2, "options": {} },
+    { "type": "unknown", "version": 1 },
+    { "type": "start", "version": 1 },
+    { "type": "close", "version": "1" }
+  ],
+  "events": [
+    { "type": "ready", "version": 1, "proxy": { "host": "127.0.0.1", "port": 12345, "username": "tsnet", "password": "00000000000000000000000000000000" }, "httpProxy": { "host": "127.0.0.1", "port": 12346, "username": "tsnet", "password": "11111111111111111111111111111111" } },
+    { "type": "auth_required", "version": 1, "url": "https://login.tailscale.com/a/synthetic" },
+    { "type": "error", "version": 1, "code": "AUTH_REQUIRED" }
+  ]
+}

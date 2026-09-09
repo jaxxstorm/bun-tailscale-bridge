@@ -1,0 +1,29 @@
+schema: spec-driven
+
+context: |
+  bun-tailscale-bridge provides a reusable mechanism for Bun applications and
+  coding agents to connect directly to resources on a Tailscale tailnet.
+
+  The bridge runs a Tailscale node in userspace rather than requiring a
+  preinstalled or running Tailscale daemon on the agent's host. Agent integrations
+  should not depend on a system-wide Tailscale installation or host-level VPN
+  configuration to reach tailnet resources.
+
+  The goal is to enable integrations across coding-agent tools and environments,
+  including OpenCode plugins, Claude Code/Claude Cowork, and Codex. For example,
+  an OpenCode plugin should be able to access tailnet resources through this
+  bridge without requiring the user to install and run Tailscale separately.
+
+  Keep the connectivity mechanism reusable rather than tied to one agent or
+  plugin API. Userspace connectivity must still respect Tailscale authentication
+  and tailnet access policies; it is not a bypass for either.
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always include a "Non-goals" section
+#     tasks:
+#       - Break tasks into chunks of max 2 hours

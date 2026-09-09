@@ -1,0 +1,69 @@
+name: Verify
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+    inputs:
+      commit:
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: verify-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.ref == 'refs/heads/main' }}
+jobs:
+  verify:
+    name: Native ${{ matrix.os }} and four-target compilation
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ inputs.commit || github.sha }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2.0.2
+        with:
+          bun-version: 1.4.2
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version: 1.26.2
+          cache-dependency-path: helper/go.sum
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun test test
+      - name: Pinned workflow lint
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 -shellcheck= -pyflakes= .github/workflows/verify.yml .github/workflows/release.yml
+      - run: go -C helper test -tags=ts_omit_webclient ./...
+      - name: Native Go race checks (CGO enabled for race detector only)
+        run: go -C helper test -tags=ts_omit_webclient -race ./...
+        env:
+          CGO_ENABLED: "1"
+      - name: Cross-compile four assets (not four-platform runtime evidence)
+        run: bun run build:all
+      - run: bun run verify:licenses
+      - run: bun run verify:helpers
+      - name: Clean package and native protocol check (no enrollment)
+        run: bun run verify:package
+      - name: Confirm live test is skipped without opt-in
+        run: bun run test:live
+        env:
+          BRIDGE_LIVE: "0"
+      - name: Record native runner
+        run: bun -e 'console.log(`Native checks ran on ${process.platform}-${process.arch}, Bun ${Bun.version}; other assets are compilation-only. Live tailnet and agent compatibility were not tested.`)'
+  required:
+    name: Required Verification
+    needs: [verify]
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Reject failed, cancelled, or skipped matrix
+        env:
+          RESULT: ${{ needs.verify.result }}
+        run: test "$RESULT" = success

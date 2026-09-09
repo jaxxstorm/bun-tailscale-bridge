@@ -1,0 +1,9 @@
+node_modules/
+dist/
+bin/
+*.tgz
+.env
+.env.*
+*.state
+.bridge-state/
+.DS_Store
