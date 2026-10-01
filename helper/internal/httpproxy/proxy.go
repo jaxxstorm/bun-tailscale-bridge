@@ -39,6 +39,7 @@ func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { retu
 type Server struct {
 	proxy       protocol.Proxy
 	server      *http.Server
+	listener    net.Listener
 	transport   *http.Transport
 	cancel      context.CancelFunc
 	done        chan error
@@ -59,6 +60,7 @@ func Start(ctx context.Context, dial DialFunc) (*Server, error) {
 	_, _ = rand.Read(secret[:])
 	ctx, cancel := context.WithCancel(ctx)
 	p := &Server{
+		listener:    ln,
 		proxy:       protocol.Proxy{Host: "127.0.0.1", Port: ln.Addr().(*net.TCPAddr).Port, Username: "tsnet", Password: hex.EncodeToString(secret[:])},
 		cancel:      cancel,
 		done:        make(chan error, 1),
@@ -275,6 +277,8 @@ func (p *Server) Close() error {
 	p.mu.Unlock()
 	p.cancel()
 	_ = p.server.Close()
+	// Serve may not have registered the listener when startup fails immediately.
+	_ = p.listener.Close()
 	for _, c := range connections {
 		_ = c.Close()
 	}

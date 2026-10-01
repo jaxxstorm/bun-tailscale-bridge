@@ -71,6 +71,36 @@ func raw(t *testing.T, p *Server, request string) (int, http.Header, string) {
 	return r.StatusCode, r.Header, string(b)
 }
 
+func TestCloseBeforeServeClosesListener(t *testing.T) {
+	ln, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	if err := ln.SetDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	_, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	// Hold Serve back entirely: Close must own cleanup before it is scheduled.
+	p := &Server{listener: ln, server: &http.Server{}, transport: &http.Transport{}, cancel: cancel}
+	if err := p.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if c, err := ln.Accept(); !errors.Is(err, net.ErrClosed) {
+		if c != nil {
+			c.Close()
+		}
+		t.Fatalf("listener not synchronously closed: %v", err)
+	}
+	if err := p.server.Serve(&listener{Listener: ln, proxy: p}); !errors.Is(err, http.ErrServerClosed) {
+		t.Fatalf("late Serve did not remain closed: %v", err)
+	}
+	if err := p.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestAuthenticationBeforeDial(t *testing.T) {
 	var calls atomic.Int32
 	p := startProxy(t, func(context.Context, string, string) (net.Conn, error) {
