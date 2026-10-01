@@ -1,5 +1,30 @@
 import { expect, test } from "bun:test";
-import { deliverAssets, githubLatest, githubResponse } from "../scripts/github-delivery";
+import { deliverAssets, ensureRelease, githubLatest, githubResponse } from "../scripts/github-delivery";
+
+test("draft creation uses the returned identity even while the release list is stale", async () => {
+  const stale: any[] = [];
+  const draft = { id: 123, tag_name: "v0.1.0", draft: true, prerelease: false };
+  let created = 0;
+  expect(await ensureRelease("v0.1.0", stale, async () => { created++; return draft; })).toEqual(draft);
+  expect(stale).toEqual([]);
+  expect(created).toBe(1);
+});
+
+test("existing drafts and published releases are reused without another create", async () => {
+  for (const draft of [true, false]) {
+    const release = { id: 123, tag_name: "v0.1.0", draft, prerelease: false };
+    expect(await ensureRelease("v0.1.0", [release], async () => { throw new Error("Must not recreate"); })).toEqual(release);
+  }
+});
+
+test("draft creation failures and invalid identities stop before asset delivery", async () => {
+  const draft = { id: 123, tag_name: "v0.1.0", draft: true, prerelease: false };
+  await expect(ensureRelease("v0.1.0", [], async () => { throw new Error("GitHub unavailable"); })).rejects.toThrow("GitHub unavailable");
+  for (const release of [null, {}, { ...draft, id: 0 }, { ...draft, tag_name: "v0.2.0" }, { ...draft, prerelease: true }, { ...draft, draft: false }]) {
+    await expect(ensureRelease("v0.1.0", [], async () => release)).rejects.toThrow();
+  }
+  await expect(ensureRelease("v0.1.0", [draft, draft], async () => { throw new Error("Must not create"); })).rejects.toThrow("Duplicate GitHub releases");
+});
 
 test("GitHub outages, auth failures, missing responses and malformed JSON fail closed", async () => {
   for (const status of [401, 403, 404, 429, 500, 503]) await expect(githubResponse(new Response('{"message":"Not Found"}', { status }))).rejects.toThrow();

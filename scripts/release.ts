@@ -4,15 +4,11 @@ import { join, resolve } from "node:path";
 import { packageName, repository, registry } from "./package-policy";
 import { digests, npmDecision, registryState, validateIdentity, validateSource } from "./release-policy";
 import { packCandidate, checkCandidate } from "./candidate";
-import { deliverAssets, githubLatest, githubResponse } from "./github-delivery";
+import { deliverAssets, ensureRelease, githubLatest, githubResponse } from "./github-delivery";
+import { runReleaseCommand } from "./release-command";
 
 const root = resolve(import.meta.dir, "..");
-async function run(args: string[]) {
-  const child = Bun.spawn(args, { cwd: root, stdout: "pipe", stderr: "pipe" });
-  const [out, , code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-  assert.equal(code, 0, `Release command failed: ${args[0]} (output withheld)`);
-  return out;
-}
+const run = (args: string[]) => runReleaseCommand(args, root);
 function required(name: string) { const value = process.env[name]; assert(value, `Missing ${name}`); return value; }
 const metadata = await Bun.file(join(root, "package.json")).json();
 const mode = process.argv[2];
@@ -87,16 +83,13 @@ if (mode === "preflight") {
         if (batch.length < 100) return result;
       }
     }
-    const matching = (await releases()).filter((value) => value.tag_name === tag);
-    assert(matching.length <= 1, "Duplicate GitHub releases for tag");
-    let release = matching[0];
-    if (!release) {
+    const release = await ensureRelease(tag, await releases(), async () => {
       await source();
-      await run(["gh", "release", "create", tag, "--repo", repository, "--verify-tag", "--target", commit, "--draft", "--generate-notes", "--title", tag]);
-      release = (await releases()).find((value) => value.tag_name === tag);
-      assert(release, "Draft not found after creation");
-    }
-    assert(!release.prerelease && release.tag_name === tag, "Conflicting GitHub release identity");
+      return api("releases", "POST", {
+        tag_name: tag, target_commitish: commit, name: tag,
+        draft: true, prerelease: false, generate_release_notes: true,
+      });
+    });
     const hashes: Record<string, string> = {};
     for (const file of [filename, "SHA256SUMS", "release.json"]) hashes[file] = digests(new Uint8Array(await Bun.file(join(directory, file)).arrayBuffer())).sha256;
     async function inspectAssets() {

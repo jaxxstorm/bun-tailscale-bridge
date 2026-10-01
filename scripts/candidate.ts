@@ -3,13 +3,9 @@ import { lstat, mkdir, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { validateEntries, validateArchiveTypes } from "./package-policy";
 import { manifestFor, validateIdentity, validateManifest, type Manifest } from "./release-policy";
+import { runReleaseCommand } from "./release-command";
 
-async function run(root: string, args: string[]) {
-  const child = Bun.spawn(args, { cwd: root, stdout: "pipe", stderr: "pipe" });
-  const [out, , code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-  assert.equal(code, 0, `Candidate command failed: ${args[0]} (output withheld)`);
-  return out;
-}
+const run = (root: string, args: string[]) => runReleaseCommand(args, root);
 
 export async function packCandidate(root: string, directory: string, tag: string, commit: string) {
   const metadata = await Bun.file(join(root, "package.json")).json();

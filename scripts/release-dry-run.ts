@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { packCandidate, checkCandidate } from "./candidate";
 import { registry } from "./package-policy";
+import { runReleaseCommand } from "./release-command";
 
 assert(process.argv.length === 3 || (process.argv.length === 4 && process.argv[3] === "--existing"), "Usage: release-dry-run.ts OUTPUT_DIRECTORY [--existing] (build all targets first)");
 assert(!process.env.GITHUB_ACTIONS, "Local dry-run only; never a release authorization path");
@@ -23,12 +24,7 @@ const cache = Bun.spawnSync(["go", "env", "-json", "GOMODCACHE", "GOCACHE"]);
 assert.equal(cache.exitCode, 0, "Cannot locate Go build caches");
 const { GOMODCACHE, GOCACHE } = JSON.parse(cache.stdout.toString());
 const env = { PATH: process.env.PATH!, HOME: scratch, TMPDIR: scratch, GOMODCACHE, GOCACHE, NPM_CONFIG_USERCONFIG: join(scratch, "user.npmrc"), NPM_CONFIG_GLOBALCONFIG: join(scratch, "global.npmrc"), NPM_CONFIG_CACHE: join(scratch, "cache"), NPM_CONFIG_IGNORE_SCRIPTS: "true", NPM_CONFIG_UPDATE_NOTIFIER: "false" };
-async function run(args: string[], cwd: string) {
-  const child = Bun.spawn(args, { cwd, env, stdout: "pipe", stderr: "pipe" });
-  const [out, , code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-  assert.equal(code, 0, `Local check failed: ${args[0]} (output withheld)`);
-  return out;
-}
+const run = (args: string[], cwd: string) => runReleaseCommand(args, cwd, env);
 try {
   console.log((await run([process.execPath, "scripts/verify-package.ts", "--tarball", tarball], root)).trim());
   assert.equal((await run(["node", "--version"], scratch)).trim(), "v24.11.1");

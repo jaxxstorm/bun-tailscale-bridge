@@ -89,7 +89,9 @@ npm publish <candidate.tgz> --access=public --provenance --ignore-scripts --regi
 
 It does not install project dependencies or run package lifecycle scripts.
 A separate GitHub job creates a draft on the existing tag, uploads only missing
-assets, downloads and checks all three, then finalizes. Publication stages
+assets, downloads and checks all three, then finalizes. Draft creation uses the
+identity returned by the create API, not an immediate potentially stale list.
+An existing matching draft is reused on recovery. Publication stages
 recheck source and digests. Older recovery does not change npm dist-tags or mark
 an older GitHub release latest.
 
@@ -115,6 +117,12 @@ the same command with `--existing` after its directory argument. This verifies
 the bundle before reusing it; it is not a hosted publication recovery command.
 
 ## Recovery
+
+Failed subprocesses report the command/subcommand, exit status, and separate
+stderr/stdout excerpts (up to 16,384 characters each). npm error codes and explanatory text
+are retained; environment credentials, recognizable tokens, authorization values,
+and URLs are redacted. Successful stdout remains unchanged for integrity/version
+parsing. Do not enable raw credential/debug-log dumps to troubleshoot publishing.
 
 Use **Re-run failed jobs** to keep the successful candidate and its artifact ID.
 Rerunning all jobs can rebuild different bytes for an immutable npm version.
