@@ -19,6 +19,8 @@ assert(assets.length >= 4, "Expected pinned web assets for exclusion check");
 for (const target of targets) {
   const path = join(root, "bin", `bridge-${target}`);
   const info = go(["version", "-m", path]);
+  assert(info.split("\n")[0]!.endsWith("go1.26.2"), "Unexpected helper toolchain");
+  assert(info.includes("\tpath\tgithub.com/jaxxstorm/bun-tailscale-bridge/helper/cmd/bridge\n"), "Unexpected helper entrypoint");
   assert(info.includes("-tags=ts_omit_webclient"), "Production helper lacks approved build tag");
   assert(info.includes("CGO_ENABLED=0"), "Production helper must be CGO-free");
   const [os, arch] = target.split("-");

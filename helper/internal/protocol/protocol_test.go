@@ -182,7 +182,8 @@ func TestEventsAndSanitization(t *testing.T) {
 			t.Fatal("invalid event written")
 		}
 	}
-	if err := Write(shortWriter{}, Event{Type: "ready", Proxy: &proxy, HTTPProxy: &proxy}); err != HelperFailed {
+	httpProxy := Proxy{Host: "127.0.0.1", Port: 1235, Username: "tsnet", Password: strings.Repeat("b", 32)}
+	if err := Write(shortWriter{}, Event{Type: "ready", Proxy: &proxy, HTTPProxy: &httpProxy}); err != HelperFailed {
 		t.Fatal("short write ignored")
 	}
 	for _, mutate := range []func(*Proxy){func(p *Proxy) { p.Host = "localhost" }, func(p *Proxy) { p.Port = 0 }, func(p *Proxy) { p.Port = 65536 }, func(p *Proxy) { p.Username = "other" }, func(p *Proxy) { p.Password = strings.Repeat("a", 64) }} {
@@ -210,9 +211,16 @@ func TestDualProxyReadyShape(t *testing.T) {
 	}
 	invalid := httpProxy
 	invalid.Password = "secret"
+	samePort := httpProxy
+	samePort.Port = socks.Port
+	samePassword := httpProxy
+	samePassword.Password = socks.Password
 	for _, event := range []Event{
 		{Type: "ready", Proxy: &socks}, {Type: "ready", HTTPProxy: &httpProxy},
 		{Type: "ready", Proxy: &socks, HTTPProxy: &invalid},
+		{Type: "ready", Proxy: &socks, HTTPProxy: &samePort},
+		{Type: "ready", Proxy: &socks, HTTPProxy: &samePassword},
+		{Type: "ready", Proxy: &socks, HTTPProxy: &socks},
 		{Type: "auth_required", URL: "https://login.test/a", HTTPProxy: &httpProxy},
 		{Type: "error", Code: HelperFailed, HTTPProxy: &httpProxy},
 	} {

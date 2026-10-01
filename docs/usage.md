@@ -3,6 +3,49 @@
 The bridge manages a Tailscale node and two local proxies. Your application owns
 the HTTP client, destination URLs, application authentication, and request lifetime.
 
+## opencode-aperture integration
+
+For the intended integration after publication, pin the plugin's dependency
+without a caret or tilde:
+
+```json
+{
+  "optionalDependencies": {
+    "@jaxxstorm/bun-tailscale-bridge": "0.1.0"
+  }
+}
+```
+
+This is integration guidance, not a claim that the package is published or that
+opencode-aperture has been validated end to end. Until publication, use the
+[local tarball](../README.md#install) for integration testing.
+
+Resolve the package specifier from the installed plugin's module context, not
+the user's working directory or a global installation. Users should not need an
+absolute `modulePath`. If a worker lives outside the plugin tree, resolve the
+package in the plugin context and pass that resolved module URL internally to
+the worker. Keep the installed package and its adjacent bundled helpers intact.
+
+Run bridge creation and proxied fetches in an external **Bun 1.4.2** worker. The
+npm dependency supplies neither that executable nor a guarantee that OpenCode's
+embedded runtime can launch it; check the worker's Bun version separately.
+Do not use the OpenCode executable as a substitute for `bun`.
+
+Optional dependencies can be omitted or fail to install. Load the bridge only
+when tailnet transport is enabled; if the package or external Bun is absent,
+report an actionable configuration error. Do not silently fall back to direct
+requests when tailnet transport was requested. With the feature disabled, leave
+the plugin's existing transport unchanged.
+
+Keep one bridge per worker lifetime and a stable, private absolute `stateDir`
+per identity. Reuse it on restart without an auth key after enrollment; do not
+delete it on routine shutdown. Pass startup cancellation through `signal` and
+request cancellation separately to fetch. An `authKey` is optional;
+`onAuthRequired({ url })` is also optional and should be supplied only when the
+plugin can privately present an interactive login link. The bridge is transport
+only: provider discovery, OAuth, service credentials, and plugin configuration
+remain the plugin's responsibility.
+
 ## Configuration
 
 ```ts
@@ -22,8 +65,8 @@ const bridge = await createBridge({
 | `hostname` | Node name in Tailscale. Required; use a DNS label such as `my-agent`. |
 | `stateDir` | Absolute path for a persistent identity. Use this or `ephemeral`, not both. |
 | `ephemeral: true` | Enroll an ephemeral node with temporary local state. |
-| `authKey` | Tailscale enrollment key. Omit when reusing an enrolled identity. |
-| `onAuthRequired` | Callback receiving `{ url }` for interactive enrollment. May return a promise. |
+| `authKey` | Optional Tailscale enrollment key. Omit when reusing an enrolled identity. |
+| `onAuthRequired` | Optional callback receiving `{ url }` for interactive enrollment. May return a promise. |
 | `startupTimeoutMs` | Startup deadline, including enrollment. Defaults to 60,000 ms. |
 | `signal` | AbortSignal for startup. Does not cancel requests after startup. |
 | `helperPath` | Absolute path to a development helper binary instead of the bundled one. |
@@ -32,6 +75,15 @@ State directories and identity files must be private to the current user
 (`0700` and `0600`). The helper creates new state with those permissions and
 rejects unsafe existing state. A directory can belong to only one running bridge;
 use separate directories for separate nodes.
+
+User-controlled symlinks anywhere in the state path are rejected; the exact
+root-owned macOS `/var` and `/tmp` system aliases are supported. Existing identity
+files are never repaired or replaced by state validation. The persistent
+`.bridge.lock` inode is never deleted, including after a crash. An unlocked lock
+file can be reused; a held advisory lock is never stolen. Use a trusted local
+filesystem with working Unix permissions and advisory locks. Validation checks
+owner/mode bits, not extended ACL grants, and does not defend against a malicious
+process running as the same user changing paths concurrently.
 
 ## Authentication
 
@@ -113,11 +165,17 @@ closes the helper's control pipe and stops it. After shutdown or helper failure,
 both proxy accessors throw. Discard cached proxy credentials; ports can be reused
 by another process. The library does not restart a failed helper automatically.
 
-`BridgeError.code` identifies lifecycle failures, including `AUTH_REQUIRED`,
-`STATE_UNSAFE`, `STATE_LOCKED`, `STARTUP_TIMEOUT`, `PROTOCOL_ERROR`, and
-`HELPER_FAILED`. HTTP proxy connection failures can return 502/504; failed HTTPS
-tunnels can surface as fetch errors. Avoid logging raw client exceptions, which
-may contain the credential-bearing proxy URL.
+`BridgeError.code` identifies lifecycle failures: `INVALID_OPTIONS`,
+`UNSUPPORTED_RUNTIME`, `UNSUPPORTED_PLATFORM`, `HELPER_UNAVAILABLE`, `AUTH_REQUIRED`, `AUTH_FAILED`,
+`CALLBACK_FAILED`, `STATE_UNSAFE`, `STATE_LOCKED`, `STARTUP_TIMEOUT`, `CANCELLED`,
+`PROTOCOL_ERROR`, `HELPER_FAILED`, and `CLOSED`. Report these codes rather than
+secrets or raw worker diagnostics. HTTP proxy connection failures can return
+502/504; failed HTTPS tunnels can surface as fetch errors. Avoid logging raw
+client exceptions, which may contain the credential-bearing proxy URL.
+
+Creation rejects runtimes other than Bun 1.4.2 with `UNSUPPORTED_RUNTIME` before
+starting a helper. Import alone remains side-effect free, including in Node.
+An explicit `helperPath` is trusted executable code, intended only for development.
 
 Closing a persistent bridge keeps its identity. Ephemeral state is removed on
 normal shutdown, but a crash may leave temporary files. Removing local state does

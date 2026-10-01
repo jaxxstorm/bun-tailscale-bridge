@@ -35,12 +35,35 @@ requirements. Do not add a long-lived npm token fallback to the workflow.
 Trusted publishing may require an existing package. If registration requires a
 credential-based first publish, run the tag workflow through candidate creation
 and both artifact checks. Download that same bundle and publish its tarball with
-a one-time credential outside the normal workflow, public access, and scripts
-disabled. Do not substitute a dummy package or rebuild the intended version.
+a one-time credential authenticated as an authorized package/scope owner outside
+the normal workflow, public access, and scripts disabled. Verify the downloaded
+bundle's source commit, SHA-256, and SHA-512 SRI before publishing. Do not
+substitute a dummy package or rebuild the intended version.
 Then configure trusted publishing and rerun failed jobs: matching npm integrity
 skips publication and allows GitHub delivery to finish. If credential-based
 bootstrap cannot meet your provenance requirements, resolve registration with
-npm first. There is no automated bootstrap.
+npm first. An owner-authenticated local publish does not automatically provide
+GitHub Actions provenance, and a later integrity-match rerun does not add it to
+an already published version. There is no automated bootstrap.
+
+### 0.1.0 Checklist
+
+These are release gates, not a record of completed runs or publication:
+
+- Confirm `0.1.0` is still unpublished using valid npm registry metadata and
+  complete the one-time protections, ownership, and bootstrap/provenance decision.
+- Run the [standard checks](validation.md) and local dry run; review the actual
+  hosted verification and both exact-tarball artifact checks for `v0.1.0`.
+  Four cross-built helpers do not establish four-platform runtime coverage.
+- Test the candidate in opencode-aperture with external Bun **1.4.2**, plugin-local
+  package resolution, optional dependency absence, enrollment/state reuse,
+  streaming/cancellation, and shutdown. Record untested paths as gaps, not passes.
+- Retain the original candidate bundle and digests before owner-authenticated
+  bootstrap or protected publication. Follow [Recovery](#recovery), never repack
+  an existing version.
+- After publication, verify npm `0.1.0` integrity against the candidate and GitHub
+  assets, and inspect provenance separately. Only then replace unpublished
+  wording and adopt the exact `0.1.0` optional dependency in the plugin.
 
 ## Stable Release
 
@@ -86,6 +109,10 @@ checks a clean native consumer, and compares npm's dry-run SRI with the tarball.
 It uses disposable HOME/config/cache without inherited npm credentials and does
 not publish or create Git references. Its all-zero fixture commit is not a
 release commit; do not publish this local fixture.
+
+To repeat checks without rebuilding or repacking a retained local fixture, run
+the same command with `--existing` after its directory argument. This verifies
+the bundle before reusing it; it is not a hosted publication recovery command.
 
 ## Recovery
 

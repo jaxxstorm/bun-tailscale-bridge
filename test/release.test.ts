@@ -23,6 +23,9 @@ describe("public package policy", () => {
     for (const file of ["package/.npmrc", "package/state/key", "package/dist/extra.d.ts", "package/../escape", "package/extra/"]) expect(() => validateEntries([...entries, file])).toThrow();
     expect(() => validateEntries([...entries, entries[0]!])).toThrow();
     for (const override of [{ name: "bun-tailscale-bridge" }, { private: true }, { license: "UNLICENSED" }, { publishConfig: {} }, { repository: {} }, { exports: {} }, { dependencies: { bad: "1" } }]) expect(() => validateMetadata({ ...metadata, ...override })).toThrow();
+    for (const hook of ["preinstall", "install", "postinstall", "prepare", "prepublish", "prepublishOnly", "prepack", "postpack"]) {
+      expect(() => validateMetadata({ ...metadata, scripts: { ...metadata.scripts, [hook]: "unsafe-command" } })).toThrow();
+    }
   });
 });
 describe("release authorization", () => {

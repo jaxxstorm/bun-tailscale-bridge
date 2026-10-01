@@ -21,7 +21,10 @@ still needs permission to reach those services under your tailnet's access polic
 
 ## Install
 
-Use **Bun 1.4.2**. Helpers are built for macOS and Linux on arm64 and x64. Consumers
+Use **Bun 1.4.2**, the only tested Bun version. Installing this npm package does
+not supply an external `bun` executable; install Bun separately, including for
+plugin workers. The tarball bundles helpers for macOS and Linux on arm64 and x64;
+cross-builds are not proof of runtime coverage on all four platforms. Consumers
 do not need Go or an installed Tailscale client.
 
 The package has not been published to npm yet. To try it locally, build a tarball
@@ -40,8 +43,12 @@ Then install it in your application:
 bun add /absolute/path/to/jaxxstorm-bun-tailscale-bridge-0.1.0.tgz
 ```
 
-After the first release, the npm package will be
-`@jaxxstorm/bun-tailscale-bridge`.
+After the first public **0.1.0** release, the intended install command is below.
+It is not available yet:
+
+```sh
+bun add --exact @jaxxstorm/bun-tailscale-bridge@0.1.0
+```
 
 ## Use it
 
@@ -86,6 +93,8 @@ needed for enrollment. Interactive login is also available.
 
 See [configuration and authentication](https://github.com/jaxxstorm/bun-tailscale-bridge/blob/main/docs/usage.md)
 or the [Aperture example](https://github.com/jaxxstorm/bun-tailscale-bridge/blob/main/examples/aperture.ts) for more.
+For the intended pinned optional dependency and external Bun worker setup, see
+[opencode-aperture integration](https://github.com/jaxxstorm/bun-tailscale-bridge/blob/main/docs/usage.md#opencode-aperture-integration).
 
 ## How it works
 

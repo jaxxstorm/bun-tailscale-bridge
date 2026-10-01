@@ -8,6 +8,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"sync"
 	"syscall"
 
@@ -32,15 +34,10 @@ func Open(o protocol.Options) (*State, error) {
 	if o.Ephemeral {
 		s.Dir, err = os.MkdirTemp("", "bun-tailscale-bridge-")
 	} else {
-		s.Dir = filepath.Clean(o.StateDir)
-		// Check the supplied final component before resolving system aliases
-		// such as macOS /var -> /private/var.
-		if fi, e := os.Lstat(s.Dir); e == nil && fi.Mode()&os.ModeSymlink != 0 {
-			return nil, protocol.StateUnsafe
-		} else if e != nil && !os.IsNotExist(e) {
-			return nil, protocol.StateUnsafe
+		s.Dir, err = validatePath(o.StateDir)
+		if err == nil {
+			err = os.MkdirAll(s.Dir, 0700)
 		}
-		err = os.MkdirAll(s.Dir, 0700)
 	}
 	if err != nil {
 		return nil, protocol.StateUnsafe
@@ -53,25 +50,11 @@ func Open(o protocol.Options) (*State, error) {
 	if err != nil || !safeInfo(fi) || !fi.IsDir() {
 		return fail(protocol.StateUnsafe)
 	}
-	s.Dir, err = filepath.EvalSymlinks(s.Dir)
+	resolved, err := validatePath(s.Dir)
 	if err != nil {
 		return fail(protocol.StateUnsafe)
 	}
-	// A private directory must not be replaceable by another user through
-	// an unprotected writable parent. Root-owned sticky /tmp is safe here.
-	for parent := filepath.Dir(s.Dir); ; parent = filepath.Dir(parent) {
-		info, e := os.Stat(parent)
-		if e != nil {
-			return fail(protocol.StateUnsafe)
-		}
-		st, ok := info.Sys().(*syscall.Stat_t)
-		if !ok || (st.Uid != 0 && st.Uid != uint32(os.Geteuid())) || (info.Mode().Perm()&0022 != 0 && info.Mode()&os.ModeSticky == 0) {
-			return fail(protocol.StateUnsafe)
-		}
-		if parent == filepath.Dir(parent) {
-			break
-		}
-	}
+	s.Dir = resolved
 	dirfd, err := unix.Open(s.Dir, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 	if err != nil {
 		return fail(protocol.StateUnsafe)
@@ -105,6 +88,53 @@ func Open(o protocol.Options) (*State, error) {
 		return fail(protocol.StateUnsafe)
 	}
 	return s, nil
+}
+
+// validatePath checks existing components before any directories are created.
+// Only the exact root-owned Darwin system aliases may redirect traversal.
+func validatePath(dir string) (string, error) {
+	dir, err := filepath.Abs(dir)
+	if err != nil {
+		return "", protocol.StateUnsafe
+	}
+	path := "/"
+	parts := strings.Split(strings.TrimPrefix(dir, "/"), "/")
+	for i := -1; i < len(parts); i++ {
+		if i >= 0 {
+			path = filepath.Join(path, parts[i])
+		}
+		info, err := os.Lstat(path)
+		if os.IsNotExist(err) {
+			return dir, nil
+		}
+		if err != nil {
+			return "", protocol.StateUnsafe
+		}
+		st, ok := info.Sys().(*syscall.Stat_t)
+		if !ok {
+			return "", protocol.StateUnsafe
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			if runtime.GOOS != "darwin" || st.Uid != 0 || (path != "/var" && path != "/tmp") || path == dir {
+				return "", protocol.StateUnsafe
+			}
+			target, err := os.Readlink(path)
+			if err != nil || target != "private"+path {
+				return "", protocol.StateUnsafe
+			}
+			return validatePath("/private" + dir)
+		}
+		if path == dir {
+			if !info.IsDir() || !safeInfo(info) {
+				return "", protocol.StateUnsafe
+			}
+		} else if !info.IsDir() || (st.Uid != 0 && st.Uid != uint32(os.Geteuid())) ||
+			(info.Mode().Perm()&0022 != 0 && (st.Uid != 0 || info.Mode()&os.ModeSticky == 0)) {
+			// Only root-owned sticky directories may be writable by others.
+			return "", protocol.StateUnsafe
+		}
+	}
+	return dir, nil
 }
 
 func safeInfo(fi os.FileInfo) bool {

@@ -177,27 +177,101 @@ func TestEphemeralCleanup(t *testing.T) {
 	}
 }
 
-func TestMacOSVarAlias(t *testing.T) {
+func TestMissingStateUnsafeParent(t *testing.T) {
+	base := t.TempDir()
+	if err := os.Chmod(base, 0777); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(base, "missing", "nested", "identity")
+	if s, err := Open(options(dir)); err != protocol.StateUnsafe {
+		if s != nil {
+			s.Close()
+		}
+		t.Fatalf("unsafe parent accepted: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(base, "missing")); !os.IsNotExist(err) {
+		t.Fatalf("created directories under unsafe parent: %v", err)
+	}
+}
+
+func TestUserSymlinkParent(t *testing.T) {
+	for _, existing := range []bool{false, true} {
+		t.Run(map[bool]string{false: "missing", true: "existing"}[existing], func(t *testing.T) {
+			base := t.TempDir()
+			target := filepath.Join(base, "target")
+			if err := os.Mkdir(target, 0700); err != nil {
+				t.Fatal(err)
+			}
+			dir := filepath.Join(target, "nested", "identity")
+			var lockBefore os.FileInfo
+			if existing {
+				s, err := Open(options(dir))
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer s.Close()
+				if err := os.WriteFile(filepath.Join(dir, "tailscaled.state"), []byte("synthetic identity"), 0600); err != nil {
+					t.Fatal(err)
+				}
+				lockBefore, err = os.Stat(filepath.Join(dir, ".bridge.lock"))
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			link := filepath.Join(base, "link")
+			if err := os.Symlink(target, link); err != nil {
+				t.Fatal(err)
+			}
+			if s, err := Open(options(filepath.Join(link, "nested", "identity"))); err != protocol.StateUnsafe {
+				if s != nil {
+					s.Close()
+				}
+				t.Fatalf("user symlink parent accepted: %v", err)
+			}
+			if !existing {
+				if _, err := os.Lstat(filepath.Join(target, "nested")); !os.IsNotExist(err) {
+					t.Fatalf("created directories through symlink: %v", err)
+				}
+				return
+			}
+			lockAfter, err := os.Stat(filepath.Join(dir, ".bridge.lock"))
+			if err != nil || !os.SameFile(lockBefore, lockAfter) {
+				t.Fatal("lock inode replaced")
+			}
+			if _, err := Open(options(dir)); err != protocol.StateLocked {
+				t.Fatalf("original lock not preserved: %v", err)
+			}
+			b, err := os.ReadFile(filepath.Join(dir, "tailscaled.state"))
+			if err != nil || string(b) != "synthetic identity" {
+				t.Fatal("identity not preserved")
+			}
+		})
+	}
+}
+
+func TestMacOSSystemAliases(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("macOS system alias")
 	}
-	dir := t.TempDir()
-	if err := os.Chmod(dir, 0700); err != nil {
-		t.Fatal(err)
+	for _, parent := range []string{"/var/tmp", "/tmp"} {
+		t.Run(parent, func(t *testing.T) {
+			base, err := os.MkdirTemp(parent, "bridge-state-test-")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { os.RemoveAll(base) })
+			s, err := Open(options(filepath.Join(base, "nested", "identity")))
+			if err != nil {
+				t.Fatalf("system alias rejected: %v", err)
+			}
+			s.Close()
+			s, err = Open(options(s.Dir))
+			if err != nil {
+				t.Fatalf("canonical path reuse failed: %v", err)
+			}
+			s.Close()
+		})
 	}
-	real, err := filepath.EvalSymlinks(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(real) < len("/private/var/") || real[:len("/private/var/")] != "/private/var/" {
-		t.Skip("temp directory is not below /private/var")
-	}
-	alias := real[len("/private"):]
-	s, err := Open(options(alias))
-	if err != nil {
-		t.Fatalf("system /var alias rejected: %v", err)
-	}
-	s.Close()
 }
 
 func TestLockAcrossProcesses(t *testing.T) {

@@ -60,11 +60,30 @@ test("missing or non-executable helper fails locally", async () => {
 });
 
 test("unsupported platform fails before enrollment", async () => {
-  const descriptor = Object.getOwnPropertyDescriptor(process, "platform")!;
-  try {
-    Object.defineProperty(process, "platform", { ...descriptor, value: "win32" });
-    await expect(createBridge(options("unsupported"))).rejects.toMatchObject({ code: "UNSUPPORTED_PLATFORM" });
-  } finally { Object.defineProperty(process, "platform", descriptor); }
+  for (const [key, value] of [["platform", "win32"], ["arch", "riscv64"]] as const) {
+    const descriptor = Object.getOwnPropertyDescriptor(process, key)!;
+    try {
+      Object.defineProperty(process, key, { ...descriptor, value });
+      await expect(createBridge(options("unsupported"))).rejects.toMatchObject({ code: "UNSUPPORTED_PLATFORM" });
+    } finally { Object.defineProperty(process, key, descriptor); }
+  }
+});
+
+test("unsupported runtimes fail with a stable error before spawning", async () => {
+  const output = join(directory, "runtime.mjs");
+  const result = await Bun.build({ entrypoints: [new URL("../src/index.ts", import.meta.url).pathname], target: "node", format: "esm" });
+  expect(result.success).toBe(true);
+  await Bun.write(output, result.outputs[0]!);
+  const child = Bun.spawn(["node", "--input-type=module", "-e", `
+    import assert from "node:assert/strict";
+    const { createBridge } = await import(${JSON.stringify(output)});
+    for (const value of [undefined, { version: "1.3.0" }, { version: "1.5.0" }]) {
+      globalThis.Bun = value;
+      await assert.rejects(createBridge({ hostname: "unsupported", ephemeral: true }), { code: "UNSUPPORTED_RUNTIME" });
+    }
+  `], { env: { PATH: process.env.PATH, HOME: directory }, stdout: "pipe", stderr: "pipe" });
+  expect(await new Response(child.stderr).text()).toBe("");
+  expect(await child.exited).toBe(0);
 });
 
 for (const [name, code] of [

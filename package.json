@@ -21,7 +21,7 @@
     "verify:helpers": "bun scripts/verify-helpers.ts",
     "build": "bun scripts/build.ts",
     "build:all": "bun scripts/build.ts --all",
-    "pack": "bun pm pack",
+    "pack": "bun pm pack --ignore-scripts",
     "verify:package": "bun scripts/verify-package.ts",
     "test:live": "bun scripts/live.ts"
   },

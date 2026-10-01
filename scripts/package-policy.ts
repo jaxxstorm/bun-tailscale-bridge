@@ -22,6 +22,9 @@ export function validateMetadata(metadata: any) {
   assert.equal(metadata.type, "module");
   assert.equal(metadata.packageManager, "bun@1.4.2");
   assert.deepEqual(metadata.engines, { bun: "1.4.2" });
+  for (const hook of ["preinstall", "install", "postinstall", "prepare", "prepublish", "prepublishOnly", "prepack", "postpack"]) {
+    assert.equal(metadata.scripts?.[hook], undefined, "Installation and publication must not run lifecycle hooks");
+  }
   for (const field of ["dependencies", "optionalDependencies", "peerDependencies", "bundledDependencies"]) {
     assert(!Object.keys(metadata[field] ?? {}).length, "Runtime dependencies require explicit packaging review");
   }

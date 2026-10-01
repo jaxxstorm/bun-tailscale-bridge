@@ -109,7 +109,8 @@ func Write(w io.Writer, e Event) error {
 	e.Version = Version
 	switch e.Type {
 	case "ready":
-		if e.Proxy == nil || !e.Proxy.Valid() || e.HTTPProxy == nil || !e.HTTPProxy.Valid() || e.URL != "" || e.Code != "" {
+		if e.Proxy == nil || !e.Proxy.Valid() || e.HTTPProxy == nil || !e.HTTPProxy.Valid() ||
+			e.Proxy.Port == e.HTTPProxy.Port || e.Proxy.Password == e.HTTPProxy.Password || e.URL != "" || e.Code != "" {
 			return ProtocolError
 		}
 	case "auth_required":

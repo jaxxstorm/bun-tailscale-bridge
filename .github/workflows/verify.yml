@@ -34,6 +34,9 @@ jobs:
         with:
           go-version: 1.26.2
           cache-dependency-path: helper/go.sum
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24.11.1
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
       - run: bun test test
@@ -48,7 +51,7 @@ jobs:
         run: bun run build:all
       - run: bun run verify:licenses
       - run: bun run verify:helpers
-      - name: Clean package and native protocol check (no enrollment)
+      - name: Clean optional consumer, native smoke and synthetic lifecycle (no enrollment)
         run: bun run verify:package
       - name: Confirm live test is skipped without opt-in
         run: bun run test:live

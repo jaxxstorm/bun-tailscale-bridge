@@ -98,6 +98,13 @@ jobs:
           merge-multiple: true
       - run: bun install --frozen-lockfile
       - run: bun scripts/release.ts check
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24.11.1
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version: 1.26.2
+          cache-dependency-path: helper/go.sum
       - name: Native clean consumer of the exact supplied bytes
         run: bun scripts/verify-package.ts --tarball "candidate/jaxxstorm-bun-tailscale-bridge-${RELEASE_TAG#v}.tgz"
   npm:

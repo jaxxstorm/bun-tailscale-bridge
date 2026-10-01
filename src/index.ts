@@ -43,6 +43,8 @@ function validate(options: BridgeOptions): StartOptions {
 
 /** Starts an independent userspace Tailscale node with local SOCKS and HTTP proxies. */
 export async function createBridge(options: BridgeOptions): Promise<Bridge> {
+  if (typeof Bun === "undefined" || Bun.version !== "1.4.2") throw new BridgeError("UNSUPPORTED_RUNTIME");
+  const started = performance.now();
   const nodeOptions = validate(options);
   const frame = JSON.stringify({ type: "start", version: PROTOCOL_VERSION, options: nodeOptions });
   if (Buffer.byteLength(frame) > MAX_FRAME_BYTES) throw new BridgeError("INVALID_OPTIONS");
@@ -51,11 +53,29 @@ export async function createBridge(options: BridgeOptions): Promise<Bridge> {
   }
   if (options.signal?.aborted) throw new BridgeError("CANCELLED");
   const path = options.helperPath ?? fileURLToPath(new URL(`../bin/bridge-${process.platform}-${process.arch}`, import.meta.url));
+  let resolutionTimer: ReturnType<typeof setTimeout> | undefined;
+  let resolutionAbort: (() => void) | undefined;
   try {
-    await access(path, constants.X_OK);
-    if (!(await stat(path)).isFile()) throw 0;
-  } catch { throw new BridgeError("HELPER_UNAVAILABLE"); }
+    await Promise.race([
+      (async () => {
+        try {
+          await access(path, constants.X_OK);
+          if (!(await stat(path)).isFile()) throw 0;
+        } catch { throw new BridgeError("HELPER_UNAVAILABLE"); }
+      })(),
+      new Promise<never>((_, reject) => {
+        resolutionTimer = setTimeout(() => reject(new BridgeError("STARTUP_TIMEOUT")), nodeOptions.startupTimeoutMs);
+        resolutionAbort = () => reject(new BridgeError("CANCELLED"));
+        options.signal?.addEventListener("abort", resolutionAbort, { once: true });
+      }),
+    ]);
+  } finally {
+    clearTimeout(resolutionTimer);
+    if (resolutionAbort) options.signal?.removeEventListener("abort", resolutionAbort);
+  }
   if (options.signal?.aborted) throw new BridgeError("CANCELLED");
+  const remaining = nodeOptions.startupTimeoutMs - (performance.now() - started);
+  if (remaining <= 0) throw new BridgeError("STARTUP_TIMEOUT");
 
   // Pass only operational environment, never the parent's ambient credentials.
   const env: Record<string, string> = {};
@@ -78,7 +98,7 @@ export async function createBridge(options: BridgeOptions): Promise<Bridge> {
   const startup = Promise.withResolvers<void>();
   // A synchronous pipe failure can reject before the caller reaches the await.
   void startup.promise.catch(() => {});
-  const timer = setTimeout(() => fail("STARTUP_TIMEOUT"), nodeOptions.startupTimeoutMs);
+  const timer = setTimeout(() => fail("STARTUP_TIMEOUT"), remaining);
   const abort = () => fail("CANCELLED");
   options.signal?.addEventListener("abort", abort, { once: true });
 
