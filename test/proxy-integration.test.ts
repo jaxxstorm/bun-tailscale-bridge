@@ -35,16 +35,24 @@ describe("native Bun fetch through real Go proxies (no enrollment)", () => {
     if (exitCode !== 0) throw new Error(`Test helper build failed: ${stdout}${stderr}`);
 
     // Disposable CA and SAN-bearing leaf, with normal consumer TLS validation.
+    // OpenSSL 1.1.1 appends -addext to its default x509_extensions, producing
+    // duplicate basicConstraints. Own the config instead of merging defaults.
+    await writeFile(join(directory, "ca.cnf"), [
+      "[req]", "distinguished_name=dn", "x509_extensions=ca", "[dn]", "[ca]",
+      "basicConstraints=critical,CA:TRUE", "keyUsage=critical,keyCertSign,cRLSign",
+      "subjectKeyIdentifier=hash",
+    ].join("\n"));
     await writeFile(join(directory, "leaf.ext"), [
       "basicConstraints=critical,CA:FALSE", "keyUsage=critical,digitalSignature,keyEncipherment",
       "extendedKeyUsage=serverAuth", "subjectAltName=DNS:upstream.test",
     ].join("\n"));
     for (const args of [
-      ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "2", "-subj", "/CN=Bridge Test CA",
-        "-addext", "basicConstraints=critical,CA:TRUE", "-keyout", "ca.key", "-out", "ca.pem"],
-      ["req", "-newkey", "rsa:2048", "-nodes", "-subj", "/CN=upstream.test", "-keyout", "leaf.key", "-out", "leaf.csr"],
+      ["req", "-config", "ca.cnf", "-x509", "-sha256", "-newkey", "rsa:2048", "-nodes", "-days", "2", "-subj", "/CN=Bridge Test CA",
+        "-keyout", "ca.key", "-out", "ca.pem"],
+      ["req", "-config", "ca.cnf", "-sha256", "-newkey", "rsa:2048", "-nodes", "-subj", "/CN=upstream.test", "-keyout", "leaf.key", "-out", "leaf.csr"],
       ["x509", "-req", "-in", "leaf.csr", "-CA", "ca.pem", "-CAkey", "ca.key", "-CAcreateserial",
-        "-days", "2", "-extfile", "leaf.ext", "-out", "leaf.pem"],
+        "-sha256", "-days", "2", "-extfile", "leaf.ext", "-out", "leaf.pem"],
+      ["verify", "-purpose", "sslserver", "-CAfile", "ca.pem", "leaf.pem"],
     ]) {
       const result = Bun.spawnSync(["openssl", ...args], { cwd: directory, stdout: "pipe", stderr: "pipe" });
       if (result.exitCode !== 0) throw new Error(`TLS fixture generation failed: ${result.stderr.toString()}`);
